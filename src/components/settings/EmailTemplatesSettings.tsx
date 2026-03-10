@@ -14,7 +14,7 @@ import { Plus, Edit, Trash2, Eye, Copy, Search, Mail } from "lucide-react";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import StandardPagination from "@/components/shared/StandardPagination";
+import { StandardPagination } from "@/components/shared/StandardPagination";
 import TemplatePreviewModal from "./email/TemplatePreviewModal";
 
 interface EmailTemplate {
