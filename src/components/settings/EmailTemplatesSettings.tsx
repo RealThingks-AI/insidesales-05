@@ -379,6 +379,8 @@ const EmailTemplatesSettings = () => {
             <StandardPagination
               currentPage={currentPage}
               totalPages={totalPages}
+              totalItems={filteredTemplates.length}
+              itemsPerPage={ITEMS_PER_PAGE}
               onPageChange={setCurrentPage}
             />
           )}
