@@ -1,97 +1,91 @@
 
 
-## Fix Account and Contact Dropdown Issues
+## Fix Note Editor Bullet Point & Stakeholders Layout Issues
 
-### Issue 1: Account Search -- Word-Based Normalized Search
+### Issues Found
 
-**File: `src/components/AccountSearchableDropdown.tsx`**
+1. **Bullet point moves when typing**: `autoFocus` on the Textarea (line 633) places the cursor at position 0 (before `"• "`), so typing inserts text before the bullet instead of after it.
 
-Replace the current `filteredAccounts` logic (lines 59-68) with word-based normalized matching. This strips hyphens, dots, and other special characters before comparing, then checks that every word in the search query appears somewhere in the combined account fields.
+2. **Notes panel lacks proper scrollbar**: The notes summary panel (line 580-679) has a `max-h-[280px]` on the inner div but the outer wrapper has no scroll constraint, so it still pushes content.
 
-```typescript
-const normalize = (s: string) =>
-  s.toLowerCase().replace(/[-_.,()]/g, ' ').replace(/\s+/g, ' ').trim();
+3. **Stakeholders section grows unbounded**: The `StakeholdersSection` component has no max-height. When the Notes panel is open with many notes, it consumes all vertical space, squishing the Updates and Action Items sections to near-zero height.
 
-const filteredAccounts = useMemo(() => {
-  if (!searchValue) return accounts;
-  const searchWords = normalize(searchValue).split(' ').filter(Boolean);
-  return accounts.filter((a) => {
-    const combined = normalize(
-      `${a.account_name || ''} ${a.region || ''} ${a.industry || ''}`
-    );
-    return searchWords.every((word) => combined.includes(word));
-  });
-}, [accounts, searchValue]);
-```
+### Changes (single file: `src/components/DealExpandedPanel.tsx`)
 
-This ensures "Harley Davidson" matches "Harley-Davidson Motor Company" and "Volvo Cars" matches "Volvo Car Corporation".
+#### Fix 1: Bullet cursor positioning (line 628-634)
 
----
-
-### Issue 2: Dropdown Always Opens Below
-
-**Files: `AccountSearchableDropdown.tsx` (line 104) and `ContactSearchableDropdown.tsx` (line 126)**
-
-Add `side="bottom"` and `avoidCollisions={false}` to both `PopoverContent` components:
+Replace `autoFocus` on the Textarea with a `ref` callback that focuses the element AND places the cursor at the end of the text (after `"• "`):
 
 ```tsx
-<PopoverContent
-  className="w-[--radix-popover-trigger-width] p-0"
-  align="start"
-  side="bottom"
-  avoidCollisions={false}
->
+<Textarea
+  value={noteText}
+  onChange={(e) => setNoteText(e.target.value)}
+  onKeyDown={handleNoteKeyDown}
+  className="min-h-[100px] text-xs resize-none"
+  ref={(el) => {
+    if (el) {
+      el.focus();
+      const len = el.value.length;
+      el.selectionStart = len;
+      el.selectionEnd = len;
+    }
+  }}
+/>
 ```
 
----
+#### Fix 2: Constrain Stakeholders section height
 
-### Issue 3: Multiple Contacts Show as Selected (Duplicate Names)
+Wrap the StakeholdersSection output in a container with `max-h` and `overflow-y-auto` so it scrolls when content is large. Change the outer div (line 462) from:
 
-**File: `src/components/ContactSearchableDropdown.tsx`**
-
-1. Add a `selectedContactId` optional prop and internal `selectedId` state (set on selection).
-2. Update checkmark logic from name-based to ID-based comparison:
-
-```typescript
-// Props addition
-interface ContactSearchableDropdownProps {
-  value?: string;
-  selectedContactId?: string;  // NEW
-  onValueChange: (value: string) => void;
-  onContactSelect?: (contact: Contact) => void;
-  placeholder?: string;
-  className?: string;
-}
-
-// Internal state
-const [selectedId, setSelectedId] = useState<string | undefined>(selectedContactId);
-
-// On select
-const handleSelect = (contact: Contact) => {
-  onValueChange(contact.contact_name);
-  setSelectedId(contact.id);
-  onContactSelect?.(contact);
-  setOpen(false);
-  setSearchValue("");
-};
-
-// Checkmark: prefer ID match, fall back to name match
-(selectedId ? selectedId === contact.id : value === contact.contact_name)
-  ? "opacity-100" : "opacity-0"
+```tsx
+<div className="px-3 pt-1.5 pb-1">
 ```
 
-3. Apply the same word-based normalized search as the Account dropdown.
+to:
 
-4. Add `shouldFilter={false}` to `<Command>` (currently missing -- causes cmdk to conflict with manual filtering).
+```tsx
+<div className="px-3 pt-1.5 pb-1 max-h-[45%] overflow-y-auto shrink-0">
+```
 
-5. Replace `<CommandEmpty>` with manual empty check (same pattern as AccountSearchableDropdown).
+However, since this is not inside a flex parent that uses percentage heights well, a better approach is to change the parent layout. The parent (line 1182) is:
 
----
+```tsx
+<div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-1">
+```
+
+The fix: Make the StakeholdersSection a flex item that can shrink, and give it a max-height so it doesn't dominate. Change line 1184 from:
+
+```tsx
+<StakeholdersSection deal={deal} queryClient={queryClient} />
+```
+
+to wrap it in a constrained container:
+
+```tsx
+<div className="shrink-0 max-h-[40%] overflow-y-auto">
+  <StakeholdersSection deal={deal} queryClient={queryClient} />
+</div>
+```
+
+This ensures:
+- Stakeholders section gets at most 40% of the panel height
+- When content exceeds that, a scrollbar appears
+- Updates and Action Items always get their fair share of space
+
+#### Fix 3: Ensure notes panel scrolls properly
+
+The notes summary panel (line 596) already has `max-h-[280px] overflow-y-auto`, but when inside the constrained container from Fix 2, this works correctly. No additional change needed here -- the outer scroll from Fix 2 handles it.
 
 ### Summary
 
-| File | Changes |
-|------|---------|
-| `AccountSearchableDropdown.tsx` | Word-based normalized search; `side="bottom"` + `avoidCollisions={false}` on PopoverContent |
-| `ContactSearchableDropdown.tsx` | Word-based normalized search; `side="bottom"` + `avoidCollisions={false}`; `shouldFilter={false}` on Command; replace CommandEmpty with manual check; ID-based selection tracking with `selectedId` state and optional `selectedContactId` prop |
+| Change | Line(s) | Description |
+|--------|---------|-------------|
+| Replace `autoFocus` with ref callback | 628-634 | Cursor placed after bullet on open |
+| Wrap StakeholdersSection in scrollable container | 1184 | Max 40% height with scrollbar |
+
+### Technical Notes
+
+- The ref callback fires on every render, but since `el.focus()` is idempotent when already focused, this is harmless
+- The `max-h-[40%]` works because the parent has `flex-1 min-h-0` which resolves to an actual pixel height
+- Updates and Action Items sections keep their `flex-1 min-h-0` with `h-[220px]`, ensuring they share remaining space equally
 
